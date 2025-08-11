@@ -9,9 +9,9 @@ import numpy as np
 
 # Channel mapping
 CHANNEL_MAPPING = {
-    "nuclei":   0,
-    "vimentin": 1,
     "f-actin":  2,
+    "vimentin": 1,
+    "nuclei":   0,
     "edu":      3,
 }
 
@@ -31,6 +31,14 @@ CONTRAST_PERCENTILES = {
     "edu":      (  0, 100),
 }
 
+# Composite channel-specific minimum thresholds (post-contrast)
+COMPOSITE_THRESHOLDS = {
+    "nuclei":   0.3,
+    "vimentin": 0.3,
+    "f-actin":  0.3,
+    "edu":      0.3,
+}
+
 # Channel-specific thresholds (post-contrast)
 CHANNEL_THRESHOLDS = {
     "nuclei":   (30_000, 65_535),
@@ -38,6 +46,24 @@ CHANNEL_THRESHOLDS = {
     "f-actin":  (60_000, 65_535),
     "edu":      (60_000, 65_535),
 }
+
+# Find area for this layer?
+FIND_AREA = {
+    "nuclei":   False,
+    "vimentin": True,
+    "f-actin":  True,
+    "edu":      False,
+}
+
+# Overlaps
+OVERLAPS = [
+    ("nuclei", "f-actin"),
+    ("nuclei", None),
+    ("nuclei", "vimentin"),
+    ("edu", None),
+    ("edu", "vimentin"),
+    ("edu", "f-actin"),
+]
 
 # Resolution level (lower is better)
 RESOLUTION = 0
@@ -53,6 +79,25 @@ DISPLAY_SIZE = 512, 512
 
 # Histogram bins
 HISTOGRAM_BINS = 100
+
+# Opening kernel size
+OPEN_SIZE = 7
+
+# Distance cutoff percentile (watershedding)
+# NOTE: in this calculation, zero values are ignored
+DISTANCE_CUTOFF_PERCENTILE = 20
+
+# Threshold ratio for determining overlap
+OVERLAP_THRESHOLD = 0.5
+
+# Scale bar dimensions
+SCALE_BAR_LENGTH = 100 # um
+SCALE_BAR_HEIGHT_PX = 10 # px
+SCALE_BAR_FONT_SIZE = 2
+
+# Scale bar offsets
+SCALE_BAR_X_OFFSET = 50
+SCALE_BAR_Y_OFFSET = 100
 
 def analyze_image(filepath):
     """
@@ -104,6 +149,19 @@ def analyze_image(filepath):
             65535,
         ).astype(np.uint16)
 
+    # Save channels at this point for false color
+    pretty_channels = channels.copy()
+    for name, image in pretty_channels.items():
+        _, image = cv2.threshold(
+            image,
+            65535*COMPOSITE_THRESHOLDS[name],
+            255,
+            cv2.THRESH_TOZERO,
+        )
+        image = (image - np.min(image)) / (np.max(image) - np.min(image))
+        image = np.uint16(65535 * image)
+        pretty_channels[name] = image
+
     ####################
     # APPLY THRESHOLDS #
     ####################
@@ -113,62 +171,158 @@ def analyze_image(filepath):
         if thresholds is not None:
             channels[name] = 257 * cv2.inRange(image, *thresholds).astype(np.uint16)
 
+    ##################
+    # ANALYZE IMAGES #
+    ##################
+
+    # Determine area (um2) of each layer
+    areas = {}
+    for name, image in channels.items():
+        # Get area of each layer, if necessary
+        if FIND_AREA[name]:
+            areas[name] = cv2.countNonZero(image) * x_res * y_res
+
+    # Count particles in each layer, if necessary
+    particle_counts = {}
+    particle_fractions = {}
+    for particles, outer in OVERLAPS:
+        # Get pertinent image
+        image = channels[particles]
+
+        # Mask with other image, if necessary
+        # cv2.imshow(f"{particles} / before watershedding", cv2.resize(image, DISPLAY_SIZE))
+        if outer is not None:
+            outer_image = (channels[outer] / 257).astype(np.uint8)
+            _, outer_image = cv2.threshold(
+                outer_image,
+                OVERLAP_THRESHOLD*np.max(outer_image),
+                255,
+                cv2.THRESH_BINARY,
+            )
+            image = cv2.bitwise_and(
+                image,
+                image,
+                mask=outer_image,
+            )
+            # cv2.imshow(f"{outer} / mask", cv2.resize(outer_image, DISPLAY_SIZE))
+
+        # Erode image
+        kernel = np.ones((OPEN_SIZE, OPEN_SIZE), np.uint8)
+        opening = cv2.morphologyEx(
+            image,
+            cv2.MORPH_OPEN,
+            kernel,
+            iterations=2,
+        )
+
+        # Apply distance transform
+        distance_transform = cv2.distanceTransform(
+            (opening / 257).astype(np.uint8),
+            cv2.DIST_L2,
+            5,
+        )
+        cutoff_distance = np.percentile(
+            distance_transform.flatten()[distance_transform.flatten() != 0],
+            DISTANCE_CUTOFF_PERCENTILE,
+        )
+        _, distance_transform = cv2.threshold(
+            distance_transform,
+            cutoff_distance,
+            255,
+            cv2.THRESH_BINARY
+        )
+        distance_transform = (255 * distance_transform / np.max(distance_transform)).astype(np.uint8)
+
+        # Count particles
+        contours, _ = cv2.findContours(
+            distance_transform.copy(),
+            cv2.RETR_EXTERNAL,
+            cv2.CHAIN_APPROX_NONE,
+        )
+        particle_counts[particles, outer] = len(contours)
+
+        # cv2.imshow(f"{particles} / {outer}", cv2.resize(distance_transform, DISPLAY_SIZE))
+        # cv2.waitKey()
+
+    # Calculate fractions
+    for (particles, outer), count in particle_counts.items():
+        if outer is not None:
+            particle_fractions[particles, outer] = count / particle_counts[particles, None]
+
     ############
     # COLORIZE #
     ############
 
-    # # False color channels
-    # false_color_channels = {}
-
-    # for name, image in channels.items():
-    #     # Get BGR color for this channel
-    #     color = COLOR_MAPPING[name]
-
-    #     # Create false color 16-bit image
-    #     colored = np.zeros_like(cv2.cvtColor(image, cv2.COLOR_GRAY2BGR))
-    #     colored[:] = color
-    #     colored = colored.astype(np.float64)
-    #     print(image.astype(np.float64))
-    #     for i in range(3):
-    #         colored[:, :, i] *= image.astype(np.float64)
-    #     colored = colored.astype(np.uint16)
-
-    #     # Add false color channel to dictionary
-    #     false_color_channels[name] = colored
-
-    # TODO
-    #  1. Find area for vimentin (um2)
-    #  2. Find area for f-actin (um2)
-    #  3. Find particle count for nuclei (watershed algorithm)
-    #  4. Find particle count for edu (watershed algorithm)
-    #  5. Find % edu in f-actin
-    #  6. Find % edu in vimentin
-    #  7. Find % nuclei in f-actin
-    #  8. Find % nuclei in vimentin
-    #  9. Find total area of bundle (um2; use perimeter of composite)
-    # 10. Save JPG of false-color composite (with 100 um scale bar!)
-    # 11. Put 1 through 9 in a spreadsheet :)
-
-    return channels
-
-if __name__ == "__main__":
-    # Analyze all images
-    images = analyze_image(Path("./test.ims"))
-
-    # TODO formalize
-    # fig, axs = plt.subplots(4, sharex=True)
-    # for i, (name, image) in enumerate(images.items()):
-    #     axs[i].hist(image.flatten(), bins=HISTOGRAM_BINS)
-    #     axs[i].set_title(name)
-    # axs[-1].set_xlabel("Value")
-    # fig.suptitle("Pixel Histogram")
-    # plt.show()
-
-    # TODO remove?
-    # Show all images
-    for name, image in images.items():
-        cv2.imshow(
-            name,
-            cv2.resize(image, DISPLAY_SIZE),
+    # False color image
+    false_color_image = np.zeros_like(
+        cv2.cvtColor(
+            list(pretty_channels.values())[0],
+            cv2.COLOR_GRAY2BGRA,
         )
-    cv2.waitKey()
+    )
+
+    for name, image in pretty_channels.items():
+        # Get BGR color for this channel
+        color = COLOR_MAPPING[name]
+
+        # Create false color 16-bit image
+        colored = np.full(image.shape + (3,), color)
+        colored = colored.astype(np.float64)
+        for i in range(3):
+            colored[:, :, i] *= image.astype(np.float64)
+        colored = colored.astype(np.uint16)
+
+        # Add alpha channel and make black pixels transparent
+        alpha = np.sum(colored, axis=-1) > 0
+        colored = np.dstack((colored, np.uint16(alpha * 65535)))
+
+        # Add false color channel to image
+        false_color_image = np.where(
+            np.dstack((colored[:, :, 3] != 0,)*4),
+            colored,
+            false_color_image,
+        )
+
+    # Draw contour around false color
+    grayscale_false_color = np.uint8((np.sum(false_color_image, axis=-1) != 0) * 255)
+    contours, _ = cv2.findContours(
+        grayscale_false_color.copy(),
+        cv2.RETR_EXTERNAL,
+        cv2.CHAIN_APPROX_NONE,
+    )
+    c = max(contours, key=cv2.contourArea)
+    areas["section"] = cv2.contourArea(c) * x_res * y_res
+
+    # Add scale bar
+    scale_bar_px = int(SCALE_BAR_LENGTH / x_res)
+    x_end = false_color_image.shape[0] - SCALE_BAR_X_OFFSET
+    x_start = x_end - scale_bar_px
+    y_bar = false_color_image.shape[1] - SCALE_BAR_Y_OFFSET
+    cv2.line(
+        false_color_image,
+        (x_start, y_bar),
+        (x_end, y_bar),
+        (65535,)*4,
+        SCALE_BAR_HEIGHT_PX,
+    )
+    (text_width, text_height), _ = cv2.getTextSize(
+        f"{SCALE_BAR_LENGTH} um",
+        cv2.FONT_HERSHEY_SIMPLEX, 
+        SCALE_BAR_FONT_SIZE,
+        SCALE_BAR_HEIGHT_PX,
+    )
+    x_text, y_text = x_start + (x_end - x_start) // 2 - text_width // 2, y_bar + 3 * text_height // 2
+    cv2.putText(
+        false_color_image,
+        f"{SCALE_BAR_LENGTH} um",
+        (x_text, y_text),
+        cv2.FONT_HERSHEY_SIMPLEX, 
+        SCALE_BAR_FONT_SIZE,
+        (65535,)*4,
+        SCALE_BAR_HEIGHT_PX,
+    )
+
+    # Convert false color to 8-bit unsigned
+    false_color_image = np.uint8(false_color_image / 257)[:, :, :3]
+
+    return false_color_image, areas, particle_counts, particle_fractions
