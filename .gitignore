@@ -1,5 +1,9 @@
 # Image files
 *.ims
+*.jpg
+
+# Comma-separated analysis output
+*.csv
 
 # Python virtual environment
 .image/
