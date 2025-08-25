@@ -88,7 +88,7 @@ def analyze_image(filepath):
     channels = {name: channels[idx] for name, idx in channel_assignments.items()}
 
     # Microns per pixel (X and Y directions)
-    resolution = {name: im.metaData[TIMEPOINT, z, c, "resolution"][1:3] for c, (name, _) in enumerate(channels.items())}
+    resolution = {name: (0.153, 0.153) for c, (name, _) in enumerate(channels.items())}
 
     ##################
     # APPLY CONTRAST #
@@ -100,8 +100,31 @@ def analyze_image(filepath):
     # ANALYZE IMAGES #
     ##################
 
+    # Calculate areas
     calculate_areas = Area(resolution)
     areas = calculate_areas(contrast_channels)
+
+    # Calculate cross-sectional area for whole bundle
+    contrasted_layers = list(contrast_channels.values())
+    all_layers = contrasted_layers[0]
+    for layer in contrasted_layers[1:]:
+        all_layers = cv2.add(all_layers, layer)
+    contours, _ = cv2.findContours(
+        all_layers.copy(),
+        cv2.RETR_EXTERNAL,
+        cv2.CHAIN_APPROX_NONE,
+    )
+    hull = cv2.convexHull(np.vstack([c for c in contours]))
+    whole_bundle_mask = np.zeros_like(all_layers)
+    cv2.drawContours(
+        whole_bundle_mask,
+        [hull],
+        -1,
+        (255,),
+        -1,
+    )
+    whole_bundle_area = cv2.countNonZero(all_layers) * 0.153**2
+    areas["whole"] = whole_bundle_area
 
     # Count particles in each layer
     watershed_count = Watershed()
@@ -135,6 +158,7 @@ def analyze_image(filepath):
     for one, two in overlap:
         mask = factin_mask
         if two != "f-actin":
+            # Invert segmentation mask if not f-actin
             mask = cv2.bitwise_not(mask)
         overlapping = cv2.bitwise_and(
             contrast_channels[one],
@@ -153,7 +177,7 @@ def analyze_image(filepath):
     channels = set_contrast(channels)
     composite = make_false_color(channels, resolution)
 
-    return composite, areas, particle_counts, overlap_counts
+    return contrast_channels, composite, areas, particle_counts, overlap_counts
 
     # # False color image
     # false_color_image = np.zeros_like(

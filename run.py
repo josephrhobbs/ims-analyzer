@@ -4,7 +4,9 @@
 from pathlib import Path
 
 import cv2
+import numpy as np
 from os import walk
+import tifffile
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
@@ -46,26 +48,42 @@ def analyze_directory(dirname):
             continue
 
         # Analyze this image
-        composite, areas, particle_counts, overlap_counts = analyze_image(dirpath / filename)
+        channels, composite, areas, particle_counts, overlap_counts = analyze_image(dirpath / filename)
 
         # Data row
         row = {
+            "Whole Bundle Area (um2)": areas["whole"],
             "F-actin Area (um2)":    areas["f-actin"],
             "Vimentin Area (um2)":   areas["vimentin"],
             "Nuclei":                particle_counts["nuclei"],
             "EdU-Positive Nuclei":   particle_counts["edu"],
-            "EdU/Nuclei":            particle_counts["edu"] / particle_counts["nuclei"],
-            "EdU-Positive F-actin":  overlap_counts["edu", "f-actin"] / overlap_counts["nuclei", "f-actin"],
-            "EdU-Positive Vimentin": overlap_counts["edu", "vimentin"] / overlap_counts["nuclei", "vimentin"],
-            "Nuclei in Vimentin":    1 - overlap_counts["nuclei", "f-actin"] / particle_counts["nuclei"],
-            "Nuclei in F-actin":     overlap_counts["nuclei", "f-actin"] / particle_counts["nuclei"],
+            "EdU/Nuclei":            particle_counts["edu"] / particle_counts["nuclei"] if particle_counts["nuclei"] > 0 else 0,
+            "EdU-Positive F-actin":  overlap_counts["edu", "f-actin"] / overlap_counts["nuclei", "f-actin"] if overlap_counts["nuclei", "f-actin"] > 0 else 0,
+            "EdU-Positive Vimentin": overlap_counts["edu", "vimentin"] / overlap_counts["nuclei", "vimentin"] if overlap_counts["nuclei", "vimentin"] > 0 else 0,
+            "Nuclei in Vimentin":    1 - overlap_counts["nuclei", "f-actin"] / particle_counts["nuclei"] if particle_counts["nuclei"] > 0 else 0,
+            "Nuclei in F-actin":     overlap_counts["nuclei", "f-actin"] / particle_counts["nuclei"] if particle_counts["nuclei"] > 0 else 0,
         }
 
-        # Filename for false color image
-        fc_filename = filename.removesuffix(IMAGE_EXT) + ".jpg"
+        # Filenames
+        stem = filename.removesuffix(IMAGE_EXT)
+        fc_filename  = stem + ".jpg"
+        tif_filename = stem + ".tif"
 
         # Save false color image
         cv2.imwrite(dirpath / fc_filename, composite)
+
+        # Save TIFF image
+        channels = list(channels.items())
+        channels.sort(key=lambda item: item[0])
+        channel_names = [name for name, channel in channels]
+        tif = np.stack([cv2.cvtColor(channel, cv2.COLOR_GRAY2BGR) for name, channel in channels], axis=0)
+        tifffile.imwrite(
+            dirpath / tif_filename,
+            tif,
+            metadata={
+                "Channel": {"Name": channel_names},
+            },
+        )
 
         # Add row to data
         data[filename] = row

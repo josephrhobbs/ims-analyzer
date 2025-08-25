@@ -1,6 +1,7 @@
 # Image files
 *.ims
 *.jpg
+*.tif
 
 # Comma-separated analysis output
 *.csv
