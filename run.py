@@ -69,21 +69,9 @@ def analyze_directory(dirname):
         fc_filename  = stem + ".jpg"
         tif_filename = stem + ".tif"
 
-        # Save false color image
-        cv2.imwrite(dirpath / fc_filename, composite)
-
-        # Save TIFF image
-        channels = list(channels.items())
-        channels.sort(key=lambda item: item[0])
-        channel_names = [name for name, channel in channels]
-        tif = np.stack([cv2.cvtColor(channel, cv2.COLOR_GRAY2BGR) for name, channel in channels], axis=0)
-        tifffile.imwrite(
-            dirpath / tif_filename,
-            tif,
-            metadata={
-                "Channel": {"Name": channel_names},
-            },
-        )
+        # Save composite image, if it was generated
+        if composite is not None:
+            cv2.imwrite(dirpath / fc_filename, composite)
 
         # Add row to data
         data[filename] = row

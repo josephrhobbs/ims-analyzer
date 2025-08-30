@@ -9,6 +9,8 @@ from user_menu import *
 from imaris_ims_file_reader.ims import ims
 from matplotlib import pyplot as plt
 import numpy as np
+import tifffile
+from tkinter import messagebox
 
 # Color mapping (BGR)
 COLOR_MAPPING = {
@@ -81,6 +83,20 @@ def analyze_image(filepath):
 
     # Prompt user to select Z layer
     channels, z = select_z(layers)
+
+    # Save TIFF image
+    tif_filename = filepath.parent / (filepath.stem + ".tif")
+    channels_list = list(channels.items())
+    channels_list.sort(key=lambda item: item[0])
+    channel_names = [name for name, channel in channels_list]
+    tif = np.stack([cv2.cvtColor(channel, cv2.COLOR_GRAY2BGR) for name, channel in channels_list], axis=0)
+    tifffile.imwrite(
+        tif_filename,
+        tif,
+        metadata={
+            "Channel": {"Name": channel_names},
+        },
+    )
 
     # Prompt user to assign channels
     channel_assignments = assign_channels(channels)
@@ -174,8 +190,15 @@ def analyze_image(filepath):
     # COLORIZE #
     ############
 
-    channels = set_contrast(channels)
-    composite = make_false_color(channels, resolution)
+    create_composite = messagebox.askyesno(
+        "Create Composite",
+        "Create composite image?",
+    )
+
+    composite = None
+    if create_composite:
+        channels = set_contrast(channels, composite=True)
+        composite = make_false_color(channels, resolution)
 
     return contrast_channels, composite, areas, particle_counts, overlap_counts
 
@@ -254,4 +277,4 @@ def analyze_image(filepath):
     # return false_color_image, areas, particle_counts, particle_fractions
 
 if __name__ == "__main__":
-    analyze_image(argv[1])
+    analyze_image(Path(argv[1]))

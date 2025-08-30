@@ -6,6 +6,7 @@ import tkinter as tk
 import numpy as np
 
 PREVIEW_SIZE = 512, 512
+CONCAT_PREVIEW_SIZE = 256, 256
 
 CHANNELS = [
     "nuclei",
@@ -31,13 +32,20 @@ SCALE_BAR_FONT_SIZE = 2
 SCALE_BAR_X_OFFSET = 50
 SCALE_BAR_Y_OFFSET = 100
 
-def show_image(channels, z):
+def show_image(channels, z, brightness=0.5, contrast=1.0):
     """
     Preview the image selected by the user.
     """
-    for c, (name, channel) in enumerate(channels.items()):
-        im = cv2.resize(channel, PREVIEW_SIZE)
-        cv2.imshow(f"{name} (Z = {z})", im)
+    resized = []
+    for _, channel in channels.items():
+        im = cv2.resize(channel, CONCAT_PREVIEW_SIZE)
+        im = np.clip(
+            0.5 + contrast*((im/65535) - (1 - brightness)),
+            0.0,
+            1.0,
+        )
+        resized.append((65535*im).astype(np.uint16))
+    cv2.imshow(f"Z = {z}", cv2.hconcat(resized))
 
 def show_channel(channel, name):
     """
@@ -170,31 +178,52 @@ def show_composite(channels, title, resolution):
 
 def select_z(layers):
     """
-    Given a Z-stack of images, ask the user to select one.
+    Given a Z-stack of images, ask the user to select one slice.
     """
     idx = 0
     count = len(layers)
 
-    print("SELECT Z STACK")
-    print("\tPress [m] to view next layer")
-    print("\tPress [n] to view previous layer")
+    print("SELECT Z SLICE")
+    print("\tPress [space] to view next layer")
+    print("\tPress [x] to increase brightness")
+    print("\tPress [z] to decrease brightness")
+    print("\tPress [m] to increase contrast")
+    print("\tPress [n] to decrease contrast")
+    print("\tPress [r] to [r]eset brightness and contrast")
     print("\tPress [s] to [s]elect current layer")
     print()
 
+    brightness = 0.5
+    contrast = 1
+  
     while True:
         # Preview image
-        show_image(layers[idx], idx)
+        show_image(layers[idx], idx, brightness, contrast)
 
         # Await key
         key = cv2.waitKey(0)
 
-        if key == ord("m"):
+        if key == ord(" "):
             cv2.destroyAllWindows()
             idx = (idx + 1) % count
+            brightness = 0.5
+            contrast = 1
+            continue
+        elif key == ord("m"):
+            contrast *= 1.05
             continue
         elif key == ord("n"):
-            cv2.destroyAllWindows()
-            idx = (idx - 1) % count
+            contrast /= 1.05
+            continue
+        elif key == ord("x"):
+            brightness += 0.02
+            continue
+        elif key == ord("z"):
+            brightness -= 0.02
+            continue
+        elif key == ord("r"):
+            brightness = 0.5
+            contrast = 1
             continue
         elif key == ord("s"):
             cv2.destroyAllWindows()
@@ -240,11 +269,14 @@ def assign_channels(image):
     cv2.destroyAllWindows()
     return assignments
 
-def set_contrast(image):
+def set_contrast(image, composite=False):
     """
     Given a collection of channels, ask the user to set the contrast in each.
     """
-    print("SET BRIGHTNESS AND CONTRAST")
+    if composite:
+        print("SET BRIGHTNESS AND CONTRAST (FOR COMPOSITE)")
+    else:
+        print("SET BRIGHTNESS AND CONTRAST (FOR QUANTIFICATION)")
     print("\tPress [x] to increase brightness")
     print("\tPress [z] to decrease brightness")
     print("\tPress [m] to increase contrast")
