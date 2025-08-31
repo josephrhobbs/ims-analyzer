@@ -121,17 +121,9 @@ def analyze_image(filepath):
     areas = calculate_areas(contrast_channels)
 
     # Calculate cross-sectional area for whole bundle
-    contrasted_layers = list(contrast_channels.values())
-    all_layers = contrasted_layers[0]
-    for layer in contrasted_layers[1:]:
-        all_layers = cv2.add(all_layers, layer)
-    contours, _ = cv2.findContours(
-        all_layers.copy(),
-        cv2.RETR_EXTERNAL,
-        cv2.CHAIN_APPROX_NONE,
-    )
-    hull = cv2.convexHull(np.vstack([c for c in contours]))
-    whole_bundle_mask = np.zeros_like(all_layers)
+    contour_points = draw_bundle_contour(channels)
+    hull = cv2.convexHull(contour_points)
+    whole_bundle_mask = np.zeros_like(list(channels.values())[0])
     cv2.drawContours(
         whole_bundle_mask,
         [hull],
@@ -139,7 +131,7 @@ def analyze_image(filepath):
         (255,),
         -1,
     )
-    whole_bundle_area = cv2.countNonZero(all_layers) * 0.153**2
+    whole_bundle_area = cv2.countNonZero(whole_bundle_mask) * 0.153**2
     areas["whole"] = whole_bundle_area
 
     # Count particles in each layer

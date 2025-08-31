@@ -269,6 +269,64 @@ def assign_channels(image):
     cv2.destroyAllWindows()
     return assignments
 
+def draw_bundle_contour(channels):
+    """
+    Given a collection of channels, ask the user to draw a contour around the bundle.
+    """
+    print("DRAW BUNDLE CONTOUR")
+    print("\tClick [left] to add points")
+    print("\tPress [r] to [r]eset")
+    print("\tPress [c] to [c]lose contour")
+    print("\tPress [s] to [s]ave contour")
+   
+    # Whole bundle
+    channels_list = list(channels.values())
+    whole_bundle = np.zeros_like(channels_list[0])
+    for c in channels_list:
+        whole_bundle = cv2.add(whole_bundle, c)
+    whole_bundle = cv2.resize(whole_bundle, PREVIEW_SIZE)
+
+    points = []
+
+    # Mouse callback
+    def on_mouse(event, x, y, flags, param):
+        """
+        OpenCV mouse callback
+        """
+        if event == cv2.EVENT_LBUTTONDOWN:
+            # Add point to list
+            points.append((x, y))
+
+    cv2.namedWindow("Draw Contour")
+    cv2.setMouseCallback("Draw Contour", on_mouse)
+    
+    while True:
+        # Draw current polygon
+        bundle_with_contours = whole_bundle.copy()
+        if points:
+            pts = np.array([points]).reshape((-1, 1, 2))
+            cv2.polylines(
+                bundle_with_contours,
+                [pts],
+                False,
+                65535,
+                10,
+            )
+        cv2.imshow("Draw Contour", bundle_with_contours)
+
+        # Reset points or stop on key input
+        key = cv2.waitKey(1)
+        if key == ord("r"):
+            points = []
+            continue
+        elif key == ord("c"):
+            points = points + [points[0]]
+            continue
+        elif key == ord("s"):
+            cv2.destroyAllWindows()
+            pts = np.array([points + [points[0]]]).reshape((-1, 1, 2))
+            return pts 
+
 def set_contrast(image, composite=False):
     """
     Given a collection of channels, ask the user to set the contrast in each.
