@@ -284,6 +284,7 @@ def draw_bundle_contour(channels):
     whole_bundle = np.zeros_like(channels_list[0])
     for c in channels_list:
         whole_bundle = cv2.add(whole_bundle, c)
+    whole_bundle_size = whole_bundle.shape
     whole_bundle = cv2.resize(whole_bundle, PREVIEW_SIZE)
 
     points = []
@@ -325,7 +326,7 @@ def draw_bundle_contour(channels):
         elif key == ord("s"):
             cv2.destroyAllWindows()
             pts = np.array([points + [points[0]]]).reshape((-1, 1, 2))
-            return pts 
+            return pts, whole_bundle_size
 
 def set_contrast(image, composite=False):
     """
