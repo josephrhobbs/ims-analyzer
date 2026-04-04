@@ -191,6 +191,7 @@ def select_z(layers):
     print("\tPress [n] to decrease contrast")
     print("\tPress [r] to [r]eset brightness and contrast")
     print("\tPress [s] to [s]elect current layer")
+    print("\tPress [p] to max-[p]roject all layers")
     print()
 
     brightness = 0.5
@@ -228,6 +229,18 @@ def select_z(layers):
         elif key == ord("s"):
             cv2.destroyAllWindows()
             return layers[idx], idx
+        elif key == ord("p"):
+            # Max-project
+            max_project = {}
+            for layer in layers:
+                for channel_name, channel in layer.items():
+                    if channel_name in max_project:
+                        max_project[channel_name].append(channel)
+                    else:
+                        max_project[channel_name] = [channel]
+            max_project = {name: np.max(np.array(zstack), axis=0) for name, zstack in max_project.items()}
+            cv2.destroyAllWindows()
+            return max_project, 0
 
 def assign_channels(image):
     """

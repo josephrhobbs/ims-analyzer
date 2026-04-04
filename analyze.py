@@ -1,5 +1,4 @@
 # IMS Analyzer
-
 from pathlib import Path
 from sys import argv
 
@@ -80,8 +79,8 @@ def analyze_image(filepath):
             for idx in range(im.shape[1])
         }
         layers.append(normalize(channels))
-
-    # Prompt user to select Z layer
+    
+    # Prompt user to select Z layer (or max-project)
     channels, z = select_z(layers)
 
     # Save TIFF image
